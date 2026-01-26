@@ -1,0 +1,217 @@
+1] Smart environmental monitoring system using ESP32 and Telegram : 
+
+1] Program : 
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <UniversalTelegramBot.h>
+#include <ArduinoJson.h>
+#include <DHT.h>
+
+/* ---------------- WIFI & TELEGRAM ---------------- */
+const char* ssid = "mark";
+const char* password = "12345678";
+
+#define BOTtoken "8299122691:AAGCEcxHiYbVBU1bnr8DK3bwbhvJasZO5P0"
+#define CHAT_ID  "5093127465"
+
+/* ---------------- SENSOR PINS ---------------- */
+#define MQ2_PIN     34
+#define MQ135_PIN   35
+#define IR_PIN      21
+#define DHT_PIN     4
+#define TRIG_PIN    19
+#define ECHO_PIN    5
+
+#define DHTTYPE DHT11
+DHT dht(DHT_PIN, DHTTYPE);
+
+/* ---------------- THRESHOLDS ---------------- */
+#define MQ2_THRESHOLD    2000
+#define MQ135_THRESHOLD  2200
+#define DISTANCE_LIMIT   20
+
+WiFiClientSecure client;
+UniversalTelegramBot bot(BOTtoken, client);
+int botRequestDelay = 1000;
+unsigned long lastTimeBotRan;
+
+/* ---------------- FUNCTIONS ---------------- */
+
+String checkMQ2() {
+  int mq2 = analogRead(MQ2_PIN);
+  if (mq2 < MQ2_THRESHOLD)
+    return "GOOD AIR QUALITY";
+  else
+    return "POOR AIR QUALITY";
+}
+
+String checkMQ135() {
+  int mq135 = analogRead(MQ135_PIN);
+  if (mq135 > MQ135_THRESHOLD)
+    return " DANGER : GAS LEVEL HIGH";
+  else
+    return "SAFE : NO GAS DANGER";
+}
+
+String checkIR() {
+  int ir = digitalRead(IR_PIN);
+  if (ir == LOW)
+    return "OBJECT DETECTED";
+  else
+    return "NO OBJECT";
+}
+
+String checkDHT() {
+  float t = dht.readTemperature();
+  float h = dht.readHumidity();
+
+  if (isnan(t) || isnan(h))
+    return "DHT11 ERROR";
+
+  String data = "Temperature : " + String(t) + " °C\n";
+  data += "Humidity    : " + String(h) + " %";
+  return data;
+}
+
+String checkDistance() {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  long duration = pulseIn(ECHO_PIN, HIGH, 30000);
+  float distance = duration * 0.034 / 2;
+
+  if (distance <= DISTANCE_LIMIT)
+    return "OBJECT IS NEAR (" + String(distance) + " cm)";
+  else
+    return "OBJECT IS FAR (" + String(distance) + " cm)";
+}
+
+/* ---------------- TELEGRAM HANDLER ---------------- */
+
+void handleNewMessages(int numNewMessages) {
+  for (int i = 0; i < numNewMessages; i++) {
+    String chat_id = bot.messages[i].chat_id;
+    String text = bot.messages[i].text;
+
+    if (text == "/start") {
+      bot.sendMessage(chat_id,
+        "ESP32 ENVIRONMENTAL MONITORING SYSTEM\n\n"
+        "/status\n"
+        "/mq2\n"
+        "/mq135\n"
+        "/dht\n"
+        "/ir\n"
+        "/distance", "");
+    }
+
+    else if (text == "/status") {
+      String msg;
+      msg += "MQ2      : " + checkMQ2() + "\n";
+      msg += "MQ135    : " + checkMQ135() + "\n";
+      msg += "IR       : " + checkIR() + "\n";
+      msg += checkDHT() + "\n";
+      msg += "Distance : " + checkDistance();
+      bot.sendMessage(chat_id, msg, "");
+    }
+
+    else if (text == "/mq2")
+      bot.sendMessage(chat_id, checkMQ2(), "");
+
+    else if (text == "/mq135")
+      bot.sendMessage(chat_id, checkMQ135(), "");
+
+    else if (text == "/ir")
+      bot.sendMessage(chat_id, checkIR(), "");
+
+    else if (text == "/dht")
+      bot.sendMessage(chat_id, checkDHT(), "");
+
+    else if (text == "/distance")
+      bot.sendMessage(chat_id, checkDistance(), "");
+  }
+}
+
+/* ---------------- SETUP ---------------- */
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(IR_PIN, INPUT);
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+
+  dht.begin();
+
+  WiFi.begin(ssid, password);
+  client.setInsecure();
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+  }
+}
+
+/* ---------------- LOOP ---------------- */
+
+void loop() {
+  if (millis() - lastTimeBotRan > botRequestDelay) {
+    int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+    while (numNewMessages) {
+      handleNewMessages(numNewMessages);
+      numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+    }
+    lastTimeBotRan = millis();
+  }
+
+}
+
+
+
+
+2]  Hardware & Pin Mapping (As per your design)
+
+| Sensor       | Function           | ESP32 Pin | Type             |
+| ------------ | ------------------ | --------- | ---------------- |
+| MQ2          | Air quality        | GPIO 34   | ADC (Input only) |
+| MQ135        | Gas level          | GPIO 35   | ADC (Input only) |
+| IR Sensor    | Object detection   | GPIO 21   | Digital          |
+| DHT11        | Temp & Humidity    | GPIO 4    | Digital          |
+| HC-SR04 TRIG | Ultrasonic Trigger | GPIO 19   | Digital Output   |
+| HC-SR04 ECHO | Ultrasonic Echo    | GPIO 5    | Digital Input    |
+
+---
+
+3]  Telegram Bot Command Structure
+
+| Telegram Command | Action                 |
+| ---------------- | ---------------------- |
+| `/start`         | Welcome message        |
+| `/status`        | Full system report     |
+| `/mq2`           | Air quality            |
+| `/mq135`         | Gas danger             |
+| `/dht`           | Temperature & humidity |
+| `/ir`            | Object detection       |
+| `/distance`      | Near / Far detection   |
+
+---
+
+4 ]  Required Libraries (Install via Arduino Library Manager)
+
+```
+WiFi
+WiFiClientSecure
+UniversalTelegramBot
+ArduinoJson
+DHT sensor library
+```
+
+5]  Threshold Assumptions (You can tune later)
+
+MQ2_THRESHOLD    = 2000
+MQ135_THRESHOLD  = 2200
+DISTANCE_LIMIT   = 20 cm
+```
+
+

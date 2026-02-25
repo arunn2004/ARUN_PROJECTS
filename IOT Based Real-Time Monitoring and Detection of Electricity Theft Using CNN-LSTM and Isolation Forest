@@ -1,0 +1,95 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <PZEM004Tv30.h>
+
+// --------------------------
+// WIFI SETTINGS
+// --------------------------
+const char* ssid = "mark";
+const char* password = "12345678";
+
+// --------------------------
+// THINGSPEAK SETTINGS
+// --------------------------
+String apiKey = "H4EHRCHC4041LBI3";  
+const char* server = "http://api.thingspeak.com/update";
+
+// --------------------------
+// PZEM PINS (ESP32 Serial2)
+// --------------------------
+#define PZEM_RX_PIN 16 // ESP32 RX ← PZEM TX
+#define PZEM_TX_PIN 17 // ESP32 TX → PZEM RX
+
+PZEM004Tv30 pzem(Serial2, PZEM_RX_PIN, PZEM_TX_PIN);
+
+void setup() {
+    Serial.begin(115200);
+    Serial.println("PZEM-004T + ESP32 + ThingSpeak");
+
+    // Connect to WiFi
+    WiFi.begin(ssid, password);
+    Serial.print("Connecting to WiFi");
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.println("\nWiFi connected!");
+}
+
+void loop() {
+
+    // Read PZEM values
+    float voltage = pzem.voltage();
+    float current = pzem.current();
+    float power = pzem.power();
+    float energy = pzem.energy();
+    float frequency = pzem.frequency();
+    float pf = pzem.pf();
+
+    // Check errors
+    if (isnan(voltage) || isnan(current) || isnan(power) || isnan(energy)
+        || isnan(frequency) || isnan(pf)) {
+
+        Serial.println("Sensor read failed!");
+        delay(2000);
+        return;
+    }
+
+    // Print readings locally
+    Serial.printf("Voltage: %.2f V\n", voltage);
+    Serial.printf("Current: %.3f A\n", current);
+    Serial.printf("Power: %.2f W\n", power);
+    Serial.printf("Energy: %.3f kWh\n", energy);
+    Serial.printf("Frequency: %.2f Hz\n", frequency);
+    Serial.printf("Power Factor: %.2f\n", pf);
+
+    // -----------------------------------------------------
+    // SEND DATA TO THINGSPEAK (field1 ... field6)
+    // -----------------------------------------------------
+    if (WiFi.status() == WL_CONNECTED) {
+        HTTPClient http;
+
+        String url = server;
+        url += "?api_key=" + apiKey;
+        url += "&field1=" + String(voltage);
+        url += "&field2=" + String(current);
+        url += "&field3=" + String(power);
+        url += "&field4=" + String(energy);
+        url += "&field5=" + String(frequency);
+        url += "&field6=" + String(pf);
+
+        http.begin(url);
+        int httpCode = http.GET();
+
+        if (httpCode > 0) {
+            Serial.println("ThingSpeak Response: " + String(httpCode));
+        } else {
+            Serial.println("Error sending data");
+        }
+
+        http.end();
+    }
+
+    Serial.println("Waiting 20 seconds…");
+    delay(10000); // ThingSpeak minimum posting interval
+}

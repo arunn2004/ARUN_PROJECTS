@@ -1,0 +1,94 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+
+// ---------- WiFi Credentials ----------
+const char* ssid = "mark";
+const char* password = "12345678";
+
+// ---------- ThingSpeak ----------
+String apiKey = "NRXY8CX9AKV13BOT";
+const char* server = "http://api.thingspeak.com/update";
+
+// ---------- Sensor Pin ----------
+#define WATER_SENSOR_PIN 34
+
+// ---------- Thresholds ----------
+#define BELOW_LEVEL 30
+#define HALF_LEVEL 70
+
+void setup() {
+  Serial.begin(115200);
+  WiFi.begin(ssid, password);
+
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("\nWiFi Connected");
+}
+
+void loop() {
+
+  // Read ADC Value (0–4095)
+  int sensorValue = analogRead(WATER_SENSOR_PIN);
+
+  // Convert to percentage
+  float waterPercent = (sensorValue / 4095.0) * 100.0;
+
+  // Status Variables
+  int tankStatus = 0;
+  int safetyStatus = 0;
+
+  String tankText = "";
+  String safetyText = "";
+
+  // Threshold Logic
+  if (waterPercent <= BELOW_LEVEL) {
+    tankStatus = 1;  // Below
+    safetyStatus = 0; // Warning
+    tankText = "BELOW LEVEL";
+    safetyText = "WARNING";
+  }
+  else if (waterPercent <= HALF_LEVEL) {
+    tankStatus = 2;  // Half
+    safetyStatus = 1; // Safe
+    tankText = "HALF";
+    safetyText = "SAFE";
+  }
+  else {
+    tankStatus = 3;  // Full
+    safetyStatus = 1; // Safe
+    tankText = "FULL";
+    safetyText = "SAFE";
+  }
+
+  Serial.println("Water Level %: " + String(waterPercent));
+  Serial.println("Tank Status: " + tankText);
+  Serial.println("Safety: " + safetyText);
+  Serial.println("--------------------------");
+
+  // Send to ThingSpeak
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+
+    String url = String(server) + "?api_key=" + apiKey +
+                 "&field1=" + String(waterPercent) +
+                 "&field2=" + String(tankStatus) +
+                 "&field3=" + String(safetyStatus);
+
+    http.begin(url);
+    int httpResponseCode = http.GET();
+
+    if (httpResponseCode > 0) {
+      Serial.println("Data sent to ThingSpeak");
+    } else {
+      Serial.println("Error sending data");
+    }
+
+    http.end();
+  }
+
+  delay(20000);  // ThingSpeak minimum 15 sec delay
+}
